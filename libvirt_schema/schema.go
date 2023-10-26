@@ -48,7 +48,7 @@ type InterfaceVirtualPort struct {
 	Parameters InterfaceVirtualPortParam `xml:"parameters"`
 }
 type InterfaceVirtualPortParam struct {
-	InterfaceId string `xml:"interfaceid,attr"`
+	InterfaceID string `xml:"interfaceid,attr"`
 }
 
 type InterfaceSource struct {
@@ -60,12 +60,12 @@ type InterfaceTarget struct {
 }
 
 type VirDomainMemoryStats struct {
-	Major_fault    uint64
-	Minor_fault    uint64
-	Unused         uint64
-	Available      uint64
-	Actual_balloon uint64
-	Rss            uint64
-	Usable         uint64
-	Disk_caches    uint64
+	MajorFault    uint64
+	MinorFault    uint64
+	Unused        uint64
+	Available     uint64
+	ActualBalloon uint64
+	Rss           uint64
+	Usable        uint64
+	DiskCaches    uint64
 }

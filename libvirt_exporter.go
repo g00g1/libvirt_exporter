@@ -26,10 +26,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/g00g1/libvirt_exporter/libvirt_schema"
 	"github.com/libvirt/libvirt-go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/bykvaadm/libvirt_exporter_improved/libvirt_schema"
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
@@ -50,12 +50,12 @@ var (
 		"Memory usage of the domain, in bytes.",
 		[]string{"domain"},
 		nil)
-	libvirtDomainInfoNrVirtCpuDesc = prometheus.NewDesc(
+	libvirtDomainInfoNrVirtCPUDesc = prometheus.NewDesc(
 		prometheus.BuildFQName("libvirt", "domain_info", "virtual_cpus"),
 		"Number of virtual CPUs for the domain.",
 		[]string{"domain"},
 		nil)
-	libvirtDomainInfoCpuTimeDesc = prometheus.NewDesc(
+	libvirtDomainInfoCPUTimeDesc = prometheus.NewDesc(
 		prometheus.BuildFQName("libvirt", "domain_info", "cpu_time_seconds_total"),
 		"Amount of CPU time used by the domain, in seconds.",
 		[]string{"domain"},
@@ -225,19 +225,19 @@ var (
 		nil)
 )
 
-// QueryCPUsResult holds the structured representative of QMP's "query-cpus" output
+// QueryCPUsResult holds the structured representative of QMP's "query-cpus" output.
 type QueryCPUsResult struct {
 	Return []QemuThread `json:"return"`
 }
 
-// QemuThread holds qemu thread info: which virtual cpu is it, what the thread PID is
+// QemuThread holds qemu thread info: which virtual cpu is it, what the thread PID is.
 type QemuThread struct {
 	CPU      int
 	ThreadID int `json:"thread_id"`
 }
 
 // ReadStealTime reads the file /proc/<thread_id>/schedstat and returns
-// the second field as a float64 value
+// the second field as a float64 value.
 func ReadStealTime(pid int) (float64, error) {
 	var retval float64
 	path := fmt.Sprintf("/proc/%d/schedstat", pid)
@@ -262,7 +262,7 @@ func ReadStealTime(pid int) (float64, error) {
 
 // CollectDomainStealTime contacts the running QEMU instance via QemuMonitorCommand API call,
 // gets the PIDs of the running CPU threads.
-// It then calls ReadStealTime for every thread to obtain its steal times
+// It then calls ReadStealTime for every thread to obtain its steal times.
 func CollectDomainStealTime(ch chan<- prometheus.Metric, domain *libvirt.Domain) error {
 	var totalStealTime float64
 	var domainName string
@@ -298,7 +298,7 @@ func CollectDomainStealTime(ch chan<- prometheus.Metric, domain *libvirt.Domain)
 		totalStealTime += stealTime
 
 		// Send the metric for this CPU
-		ch <- prometheus.MustNewConstMetric(libvirtDomainInfoCPUStealTimeDesc, prometheus.CounterValue, stealTime, domainName, fmt.Sprintf("%d", thread.CPU))
+		ch <- prometheus.MustNewConstMetric(libvirtDomainInfoCPUStealTimeDesc, prometheus.CounterValue, stealTime, domainName, strconv.Itoa(thread.CPU))
 	}
 	ch <- prometheus.MustNewConstMetric(libvirtDomainInfoCPUStealTimeDesc, prometheus.CounterValue, totalStealTime, domainName, "total")
 	return nil
@@ -338,12 +338,12 @@ func CollectDomain(ch chan<- prometheus.Metric, stat libvirt.DomainStats) error 
 		float64(info.Memory)*1024,
 		domainName)
 	ch <- prometheus.MustNewConstMetric(
-		libvirtDomainInfoNrVirtCpuDesc,
+		libvirtDomainInfoNrVirtCPUDesc,
 		prometheus.GaugeValue,
 		float64(info.NrVirtCpu),
 		domainName)
 	ch <- prometheus.MustNewConstMetric(
-		libvirtDomainInfoCpuTimeDesc,
+		libvirtDomainInfoCPUTimeDesc,
 		prometheus.CounterValue,
 		float64(info.CpuTime)/1e9,
 		domainName)
@@ -365,7 +365,6 @@ func CollectDomain(ch chan<- prometheus.Metric, stat libvirt.DomainStats) error 
 			if dev.Target.Device == disk.Name {
 				if disk.PathSet {
 					DiskSource = disk.Path
-
 				} else {
 					DiskSource = dev.Source.Name
 				}
@@ -483,7 +482,7 @@ func CollectDomain(ch chan<- prometheus.Metric, stat libvirt.DomainStats) error 
 		for _, net := range desc.Devices.Interfaces {
 			if net.Target.Device == iface.Name {
 				SourceBridge = net.Source.Bridge
-				VirtualPortInterfaceID = net.Virtualport.Parameters.InterfaceId
+				VirtualPortInterfaceID = net.Virtualport.Parameters.InterfaceID
 				break
 			}
 		}
@@ -572,23 +571,22 @@ func CollectDomain(ch chan<- prometheus.Metric, stat libvirt.DomainStats) error 
 	// Collect Memory Stats
 	memorystat, err := stat.Domain.MemoryStats(11, 0)
 	var MemoryStats libvirt_schema.VirDomainMemoryStats
-	var used_percent float64
+	var usedPercent float64
 	if err == nil {
 		MemoryStats = MemoryStatCollect(&memorystat)
 		if MemoryStats.Usable != 0 && MemoryStats.Available != 0 {
-			used_percent = (float64(MemoryStats.Available) - float64(MemoryStats.Usable)) / (float64(MemoryStats.Available) / float64(100))
+			usedPercent = (float64(MemoryStats.Available) - float64(MemoryStats.Usable)) / (float64(MemoryStats.Available) / float64(100))
 		}
-
 	}
 	ch <- prometheus.MustNewConstMetric(
 		libvirtDomainMemoryStatMajorfaultDesc,
 		prometheus.CounterValue,
-		float64(MemoryStats.Major_fault),
+		float64(MemoryStats.MajorFault),
 		domainName)
 	ch <- prometheus.MustNewConstMetric(
 		libvirtDomainMemoryStatMinorFaultDesc,
 		prometheus.CounterValue,
-		float64(MemoryStats.Minor_fault),
+		float64(MemoryStats.MinorFault),
 		domainName)
 	ch <- prometheus.MustNewConstMetric(
 		libvirtDomainMemoryStatUnusedDesc,
@@ -603,7 +601,7 @@ func CollectDomain(ch chan<- prometheus.Metric, stat libvirt.DomainStats) error 
 	ch <- prometheus.MustNewConstMetric(
 		libvirtDomainMemoryStatActualBaloonDesc,
 		prometheus.CounterValue,
-		float64(MemoryStats.Actual_balloon),
+		float64(MemoryStats.ActualBalloon),
 		domainName)
 	ch <- prometheus.MustNewConstMetric(
 		libvirtDomainMemoryStatRssDesc,
@@ -618,12 +616,12 @@ func CollectDomain(ch chan<- prometheus.Metric, stat libvirt.DomainStats) error 
 	ch <- prometheus.MustNewConstMetric(
 		libvirtDomainMemoryStatDiskCachesDesc,
 		prometheus.CounterValue,
-		float64(MemoryStats.Disk_caches),
+		float64(MemoryStats.DiskCaches),
 		domainName)
 	ch <- prometheus.MustNewConstMetric(
 		libvirtDomainMemoryStatUsedPercentDesc,
 		prometheus.CounterValue,
-		float64(used_percent),
+		float64(usedPercent),
 		domainName)
 
 	return nil
@@ -634,21 +632,21 @@ func MemoryStatCollect(memorystat *[]libvirt.DomainMemoryStat) libvirt_schema.Vi
 	for _, domainmemorystat := range *memorystat {
 		switch tag := domainmemorystat.Tag; tag {
 		case 2:
-			MemoryStats.Major_fault = domainmemorystat.Val
+			MemoryStats.MajorFault = domainmemorystat.Val
 		case 3:
-			MemoryStats.Minor_fault = domainmemorystat.Val
+			MemoryStats.MinorFault = domainmemorystat.Val
 		case 4:
 			MemoryStats.Unused = domainmemorystat.Val
 		case 5:
 			MemoryStats.Available = domainmemorystat.Val
 		case 6:
-			MemoryStats.Actual_balloon = domainmemorystat.Val
+			MemoryStats.ActualBalloon = domainmemorystat.Val
 		case 7:
 			MemoryStats.Rss = domainmemorystat.Val
 		case 8:
 			MemoryStats.Usable = domainmemorystat.Val
 		case 10:
-			MemoryStats.Disk_caches = domainmemorystat.Val
+			MemoryStats.DiskCaches = domainmemorystat.Val
 		}
 	}
 	return MemoryStats
@@ -679,8 +677,8 @@ func (e *LibvirtExporter) Describe(ch chan<- *prometheus.Desc) {
 	// Domain info
 	ch <- libvirtDomainInfoMaxMemDesc
 	ch <- libvirtDomainInfoMemoryUsageDesc
-	ch <- libvirtDomainInfoNrVirtCpuDesc
-	ch <- libvirtDomainInfoCpuTimeDesc
+	ch <- libvirtDomainInfoNrVirtCPUDesc
+	ch <- libvirtDomainInfoCPUTimeDesc
 	ch <- libvirtDomainInfoCPUStealTimeDesc
 	ch <- libvirtDomainInfoVirDomainState
 
@@ -751,6 +749,14 @@ func (e *LibvirtExporter) connectLibvirtWithAuth(uri string) (*libvirt.Connect, 
 				cred.Result = e.password
 				cred.ResultLen = len(cred.Result)
 
+			case libvirt.CRED_USERNAME:
+			case libvirt.CRED_LANGUAGE:
+			case libvirt.CRED_CNONCE:
+			case libvirt.CRED_ECHOPROMPT:
+			case libvirt.CRED_NOECHOPROMPT:
+			case libvirt.CRED_REALM:
+			case libvirt.CRED_EXTERNAL:
+				// not implemented
 			}
 		}
 	}
@@ -768,21 +774,20 @@ func (e *LibvirtExporter) connectLibvirtWithAuth(uri string) (*libvirt.Connect, 
 func (e *LibvirtExporter) Connect() (isReadonly bool, err error) {
 	// First, try to connect without authentication, and with the full access
 	if e.conn, err = libvirt.NewConnect(e.uri); err == nil {
-		return
+		return false, nil
 	}
 
 	// Then, if the connection has failed, we try accessing libvirt with the authentication
 	if e.conn, err = e.connectLibvirtWithAuth(e.uri); err == nil {
-		return
+		return false, nil
 	}
 
 	// Then, if the authenticated connection failed we attempt to connect using readonly
 	if e.conn, err = libvirt.NewConnectReadOnly(e.uri); err == nil {
-		isReadonly = true
-		return
+		return true, nil
 	}
 
-	return
+	return true, err
 }
 
 func (e *LibvirtExporter) Close() {
@@ -808,18 +813,18 @@ func (e *LibvirtExporter) CollectFromLibvirt(ch chan<- prometheus.Metric) error 
 		err = CollectDomain(ch, stat)
 		if err != nil {
 			log.Println(err)
-			stat.Domain.Free()
+			_ = stat.Domain.Free()
 			continue
 		}
 		if !readOnly {
 			err = CollectDomainStealTime(ch, stat.Domain)
 			if err != nil {
 				log.Println(err)
-				stat.Domain.Free()
+				_ = stat.Domain.Free()
 				continue
 			}
 		}
-		stat.Domain.Free()
+		_ = stat.Domain.Free()
 	}
 	return nil
 }
@@ -843,7 +848,7 @@ func main() {
 
 	http.Handle(*metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`
+		_, _ = w.Write([]byte(`
 			<html>
 			<head><title>Libvirt Exporter</title></head>
 			<body>
