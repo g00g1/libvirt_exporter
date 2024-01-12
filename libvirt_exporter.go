@@ -24,9 +24,12 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"unsafe"
 
 	"github.com/g00g1/libvirt_exporter/libvirt_schema"
 	"github.com/prometheus/client_golang/prometheus"
@@ -227,6 +230,16 @@ var (
 		nil)
 )
 
+// https://stackoverflow.com/a/59210739
+func stringToByteSlice(s string) []byte {
+	if s == "" {
+		return nil // or []byte{}
+	}
+	return (*[0x7fff0000]byte)(unsafe.Pointer(
+		(*reflect.StringHeader)(unsafe.Pointer(&s)).Data),
+	)[:len(s):len(s)]
+}
+
 // QueryCPUsResult holds the structured representative of QMP's "query-cpus" output.
 type QueryCPUsResult struct {
 	Return []QemuThread `json:"return"`
@@ -245,12 +258,13 @@ func ReadStealTime(pid int) (float64, error) {
 
 	path := fmt.Sprintf("/proc/%d/schedstat", pid)
 
-	result, err := ioutil.ReadFile(fmt.Sprintf("/proc/%d/schedstat", pid))
+	result, err := ioutil.ReadFile(path)
 	if err != nil {
 		return 0, err
 	}
 
-	values := strings.Split(string(result), " ")
+	values := strings.Split(*(*string)(unsafe.Pointer(&result)), " ")
+
 	// We expect exactly 3 fields in the output, otherwise we return error
 	if len(values) != 3 {
 		return 0, fmt.Errorf("Unexpected amount of fields in %s. The file content is \"%s\"", path, result)
@@ -262,6 +276,13 @@ func ReadStealTime(pid int) (float64, error) {
 	}
 
 	return retval, nil
+}
+
+var qemuThreadPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]QemuThread, 0, 8)
+		return &b
+	},
 }
 
 // CollectDomainStealTime contacts the running QEMU instance via QemuMonitorCommand API call,
@@ -282,11 +303,16 @@ func CollectDomainStealTime(ch chan<- prometheus.Metric, domain *libvirt.Domain)
 		return err
 	}
 
-	// Allocate a map for the json parser results
-	qemuThreadsResult := QueryCPUsResult{Return: make([]QemuThread, 0, 8)}
+	// Get a map from the pool (less allocations)
+	qemuThreadPtr := qemuThreadPool.Get().(*[]QemuThread)
+	defer qemuThreadPool.Put(qemuThreadPtr) // return it back to the pool
+	qemuThreadMap := *qemuThreadPtr
+
+	// Use the map to store the json parser results
+	qemuThreadsResult := QueryCPUsResult{Return: qemuThreadMap}
 
 	// Parse the result into the map
-	err = json.Unmarshal([]byte(resultJSON), &qemuThreadsResult)
+	err = json.Unmarshal(stringToByteSlice(resultJSON), &qemuThreadsResult)
 	if err != nil {
 		return err
 	}
@@ -306,6 +332,10 @@ func CollectDomainStealTime(ch chan<- prometheus.Metric, domain *libvirt.Domain)
 		// Send the metric for this CPU
 		ch <- prometheus.MustNewConstMetric(libvirtDomainInfoCPUStealTimeDesc, prometheus.CounterValue, stealTime, domainName, strconv.Itoa(thread.CPU))
 	}
+
+	// reset qemuThreadMap
+	qemuThreadMap = qemuThreadMap[:0]
+
 	ch <- prometheus.MustNewConstMetric(libvirtDomainInfoCPUStealTimeDesc, prometheus.CounterValue, totalStealTime, domainName, "total")
 
 	return nil
@@ -325,7 +355,7 @@ func CollectDomain(ch chan<- prometheus.Metric, stat libvirt.DomainStats) error 
 	}
 
 	var desc libvirt_schema.Domain
-	if err = xml.Unmarshal([]byte(xmlDesc), &desc); err != nil {
+	if err = xml.Unmarshal(stringToByteSlice(xmlDesc), &desc); err != nil {
 		return err
 	}
 
@@ -364,10 +394,6 @@ func CollectDomain(ch chan<- prometheus.Metric, stat libvirt.DomainStats) error 
 
 	// Report block device statistics.
 	for _, disk := range stat.Block {
-		if disk.Name == "hdc" {
-			continue
-		}
-
 		/*  "block.<num>.path" - string describing the source of block device <num>,
 		    if it is a file or block device (omitted for network
 		    sources and drives with no media inserted). For network device (i.e. rbd) take from xml. */
@@ -912,14 +938,16 @@ func main() {
 
 	http.Handle(*metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`
-			<html>
-			<head><title>Libvirt Exporter</title></head>
-			<body>
-			<h1>Libvirt Exporter</h1>
-			<p><a href='` + *metricsPath + `'>Metrics</a></p>
-			</body>
-			</html>`))
+		_, _ = w.Write(stringToByteSlice(`<html>
+<head>
+	<title>Libvirt Exporter</title></head>
+<body>
+	<h1>Libvirt Exporter</h1>
+	<p>
+		<a href='` + *metricsPath + `'>Metrics</a>
+	</p>
+</body>
+</html>`))
 	})
 
 	log.Fatal(http.ListenAndServe(*listenAddress, nil))
