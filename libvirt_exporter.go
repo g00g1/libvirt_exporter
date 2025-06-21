@@ -954,6 +954,7 @@ func logLibvirtError(err error) {
 func main() {
 	var (
 		app             = kingpin.New("libvirt_exporter", "Prometheus metrics exporter for libvirt")
+		maxProcs        = kingpin.Flag("runtime.gomaxprocs", "The target number of CPUs Go will run on (GOMAXPROCS)").Envar("GOMAXPROCS").Default("1").Int()
 		listenAddress   = app.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9177").String()
 		metricsPath     = app.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
 		libvirtURI      = app.Flag("libvirt.uri", "Libvirt URI from which to extract metrics.").Default("qemu:///system").String()
@@ -962,6 +963,8 @@ func main() {
 	)
 
 	kingpin.MustParse(app.Parse(os.Args[1:]))
+
+	runtime.GOMAXPROCS(*maxProcs)
 
 	exporter := NewLibvirtExporter(*libvirtURI, *libvirtUsername, *libvirtPassword)
 	prometheus.MustRegister(exporter)
