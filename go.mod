@@ -1,6 +1,6 @@
 module github.com/g00g1/libvirt_exporter
 
-go 1.18
+go 1.19
 
 require (
 	github.com/prometheus/client_golang v1.18.0
